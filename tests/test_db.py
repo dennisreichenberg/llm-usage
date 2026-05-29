@@ -104,6 +104,31 @@ def test_invalid_dimension_raises(tmp_path):
             store.top(metric="nonsense")
 
 
+def test_latency_percentiles(tmp_path):
+    with _store(tmp_path) as store:
+        store.insert_many(
+            [
+                _rec(request_id=str(i), latency_ms=float(v))
+                for i, v in enumerate([100, 200, 300, 400, 500, 600, 700, 800, 900, 1000])
+            ]
+        )
+        rows = store.aggregate(by="model")
+        agg = rows[0]
+        # Linear-interpolated percentiles over [100..1000] step 100.
+        assert agg["latency_ms_p50"] == 550.0
+        assert agg["latency_ms_p90"] == 910.0
+        assert agg["latency_ms_p99"] == 991.0
+
+
+def test_latency_percentiles_empty_when_no_latency(tmp_path):
+    with _store(tmp_path) as store:
+        store.insert_many([_rec(request_id="1", latency_ms=None)])
+        agg = store.aggregate(by="model")[0]
+        assert agg["latency_ms_p50"] is None
+        assert agg["latency_ms_p90"] is None
+        assert agg["latency_ms_p99"] is None
+
+
 def test_records_export_order(tmp_path):
     with _store(tmp_path) as store:
         store.insert_many(

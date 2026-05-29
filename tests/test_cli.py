@@ -91,6 +91,34 @@ def test_since_until_filter(tmp_path):
     assert sum(r["requests"] for r in payload["rows"]) == 3
 
 
+def test_export_markdown(tmp_path):
+    runner = CliRunner()
+    db = tmp_path / "usage.db"
+    _ingest(runner, db)
+
+    res = runner.invoke(cli, ["export", "--db", str(db), "--format", "markdown"])
+    assert res.exit_code == 0, res.output
+    assert res.output.startswith("# llm-usage export")
+    assert "| request_id | ts | model |" in res.output
+    # 10 records => 10 data rows beyond header + separator.
+    data_rows = [ln for ln in res.output.splitlines() if ln.startswith("| req-")]
+    assert len(data_rows) == 10
+
+
+def test_report_includes_percentiles(tmp_path):
+    runner = CliRunner()
+    db = tmp_path / "usage.db"
+    _ingest(runner, db)
+
+    res = runner.invoke(cli, ["report", "--db", str(db), "--by", "backend", "--json"])
+    assert res.exit_code == 0, res.output
+    payload = json.loads(res.output)
+    for row in payload["rows"]:
+        assert "latency_ms_p50" in row
+        assert "latency_ms_p90" in row
+        assert "latency_ms_p99" in row
+
+
 def test_empty_db_report(tmp_path):
     runner = CliRunner()
     res = runner.invoke(cli, ["report", "--db", str(tmp_path / "empty.db")])

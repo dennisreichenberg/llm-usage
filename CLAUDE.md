@@ -56,8 +56,9 @@ litellm-proxy logs (JSONL)        pricing.yaml (USD / 1M tokens)
 
 - `llm-usage ingest LOGFILE... [--db] [--pricing] [--stdin]`
 - `llm-usage report [--by model|backend|day] [--since] [--until] [--json]`
+  -- Spalten: requests, prompt/completion/total Tokens, p50/p90/p99 Latenz, cost_usd, errors.
 - `llm-usage top [--metric cost|tokens|requests] [--by model|backend] [--limit] [--json]`
-- `llm-usage export [--format json|csv] [--since] [--until] [-o FILE]`
+- `llm-usage export [--format json|csv|markdown] [--since] [--until] [-o FILE]`
 
 ## Konventionen
 
@@ -88,7 +89,10 @@ pytest
 
 ## Verwandte Tickets
 
-- REI-418 -- dieses Tool.
-- REI-408 -- Tool-Gap-Analyse (Parent).
+- REI-418 -- initiales Scaffolding dieses Tools.
+- REI-519 -- p50/p90/p99-Latenz + Markdown-Export + Monorepo-/Repo-Discoverability
+  (aktuelle Iteration unter Parent REI-515).
+- REI-515 -- Tool-Gap-Brainstorm (Parent von REI-519).
+- REI-408 -- Tool-Gap-Analyse + Monorepo-Liefer-Schema.
 - REI-266 -- litellm-proxy (Log-Quelle).
 - REI-419 -- Profil-Repo + README-Discoverability verifizieren.

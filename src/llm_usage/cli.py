@@ -106,7 +106,10 @@ def report(db_path, by, since, until, as_json) -> None:
         click.echo("No usage data for the selected range.")
         return
 
-    headers = [by, "requests", "prompt", "completion", "total", "avg_ms", "cost_usd", "errors"]
+    headers = [
+        by, "requests", "prompt", "completion", "total",
+        "p50_ms", "p90_ms", "p99_ms", "cost_usd", "errors",
+    ]
     table = [
         [
             r["bucket"],
@@ -114,7 +117,9 @@ def report(db_path, by, since, until, as_json) -> None:
             r["prompt_tokens_sum"],
             r["completion_tokens_sum"],
             r["total_tokens_sum"],
-            "-" if r["latency_ms_avg"] is None else f"{r['latency_ms_avg']:.0f}",
+            _fmt_ms(r.get("latency_ms_p50")),
+            _fmt_ms(r.get("latency_ms_p90")),
+            _fmt_ms(r.get("latency_ms_p99")),
             f"{r['cost_usd_sum']:.4f}",
             r["errors"],
         ]
@@ -126,7 +131,7 @@ def report(db_path, by, since, until, as_json) -> None:
         sum(r["prompt_tokens_sum"] for r in rows),
         sum(r["completion_tokens_sum"] for r in rows),
         sum(r["total_tokens_sum"] for r in rows),
-        "",
+        "", "", "",
         f"{sum(r['cost_usd_sum'] for r in rows):.4f}",
         sum(r["errors"] for r in rows),
     ]
@@ -179,7 +184,7 @@ def top(db_path, metric, by, limit, since, until, as_json) -> None:
 @click.option(
     "--format",
     "fmt",
-    type=click.Choice(["json", "csv"]),
+    type=click.Choice(["json", "csv", "markdown"]),
     default="json",
     help="Output format.",
 )
@@ -193,7 +198,7 @@ def top(db_path, metric, by, limit, since, until, as_json) -> None:
     help="Write to a file instead of stdout.",
 )
 def export(db_path, fmt, since, until, output) -> None:
-    """Export raw stored records as JSON or CSV."""
+    """Export raw stored records as JSON, CSV or Markdown."""
     db_path = db_path or default_db_path()
     since_n, until_n = _norm_since(since), _norm_until(until)
     with UsageStore(db_path) as store:
@@ -201,8 +206,10 @@ def export(db_path, fmt, since, until, output) -> None:
 
     if fmt == "json":
         text = json.dumps(rows, indent=2)
-    else:
+    elif fmt == "csv":
         text = _to_csv(rows)
+    else:
+        text = _to_markdown(rows, since=since_n, until=until_n)
 
     if output:
         Path(output).write_text(text, encoding="utf-8")
@@ -242,17 +249,50 @@ def _norm_bound(value: str | None, end_of_day: bool) -> str | None:
     return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+_EXPORT_FIELDS = [
+    "request_id", "ts", "model", "backend", "prompt_tokens", "completion_tokens",
+    "total_tokens", "latency_ms", "cost_usd", "status", "source",
+]
+
+
 def _to_csv(rows: list[dict]) -> str:
-    fields = [
-        "request_id", "ts", "model", "backend", "prompt_tokens", "completion_tokens",
-        "total_tokens", "latency_ms", "cost_usd", "status", "source",
-    ]
     buf = io.StringIO()
-    writer = csv.DictWriter(buf, fieldnames=fields)
+    writer = csv.DictWriter(buf, fieldnames=_EXPORT_FIELDS)
     writer.writeheader()
     for row in rows:
-        writer.writerow({k: row.get(k) for k in fields})
+        writer.writerow({k: row.get(k) for k in _EXPORT_FIELDS})
     return buf.getvalue()
+
+
+def _to_markdown(rows: list[dict], since: str | None = None, until: str | None = None) -> str:
+    """GitHub-flavored Markdown export: heading, range, table of all records."""
+    lines = ["# llm-usage export", ""]
+    if since or until:
+        rng = f"Range: {since or '(open)'} -> {until or '(open)'}"
+        lines += [rng, ""]
+    lines.append(f"Records: {len(rows)}")
+    lines.append("")
+    if not rows:
+        return "\n".join(lines) + "\n"
+    lines.append("| " + " | ".join(_EXPORT_FIELDS) + " |")
+    lines.append("| " + " | ".join("---" for _ in _EXPORT_FIELDS) + " |")
+    for row in rows:
+        cells = [_md_cell(row.get(k)) for k in _EXPORT_FIELDS]
+        lines.append("| " + " | ".join(cells) + " |")
+    return "\n".join(lines) + "\n"
+
+
+def _md_cell(value) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, float):
+        return f"{value:.4f}" if value and value < 1 else f"{value:.2f}"
+    text = str(value)
+    return text.replace("|", "\\|").replace("\n", " ")
+
+
+def _fmt_ms(value) -> str:
+    return "-" if value is None else f"{value:.0f}"
 
 
 def _render_table(headers: list[str], rows: list[list], footer: list | None = None) -> str:

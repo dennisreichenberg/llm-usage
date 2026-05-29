@@ -132,7 +132,12 @@ class UsageStore:
         since: str | None = None,
         until: str | None = None,
     ) -> list[dict]:
-        """Group requests by model/backend/day with token, latency and cost sums."""
+        """Group requests by model/backend/day with tokens, percentile latency, cost.
+
+        Percentile latencies (p50/p90/p99) are computed in Python because SQLite
+        has no PERCENTILE_CONT; the latency column is pulled in a second pass
+        and bucketed.
+        """
         if by not in _GROUP_EXPR:
             raise ValueError(f"unknown group dimension: {by!r} (use model|backend|day)")
         group = _GROUP_EXPR[by]
@@ -153,7 +158,19 @@ class UsageStore:
             ORDER BY cost_usd_sum DESC, total_tokens_sum DESC
         """
         rows = self.conn.execute(sql, params).fetchall()
-        return [_row_to_agg(r) for r in rows]
+        result = [_row_to_agg(r) for r in rows]
+
+        lat_where = where + (" AND " if where else "WHERE ") + "latency_ms IS NOT NULL"
+        lat_sql = f"SELECT {group} AS bucket, latency_ms FROM requests {lat_where}"
+        latencies: dict[str, list[float]] = {}
+        for row in self.conn.execute(lat_sql, params):
+            latencies.setdefault(row["bucket"], []).append(float(row["latency_ms"]))
+        for agg in result:
+            samples = latencies.get(agg["bucket"], [])
+            agg["latency_ms_p50"] = _percentile(samples, 0.50)
+            agg["latency_ms_p90"] = _percentile(samples, 0.90)
+            agg["latency_ms_p99"] = _percentile(samples, 0.99)
+        return result
 
     def top(
         self,
@@ -210,3 +227,17 @@ def _row_to_agg(row: sqlite3.Row) -> dict:
         "cost_usd_sum": round(row["cost_usd_sum"] or 0.0, 6),
         "errors": row["errors"] or 0,
     }
+
+
+def _percentile(samples: list[float], q: float) -> float | None:
+    """Linear-interpolated percentile (q in [0,1]). Returns None when empty."""
+    if not samples:
+        return None
+    if len(samples) == 1:
+        return round(samples[0], 2)
+    s = sorted(samples)
+    pos = q * (len(s) - 1)
+    lo = int(pos)
+    hi = min(lo + 1, len(s) - 1)
+    frac = pos - lo
+    return round(s[lo] + (s[hi] - s[lo]) * frac, 2)

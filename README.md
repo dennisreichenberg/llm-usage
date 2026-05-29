@@ -39,19 +39,21 @@ llm-usage top --metric cost --limit 5
 llm-usage top --metric tokens --by backend
 
 # 4. Export the raw ledger.
-llm-usage export --format json -o usage.json
-llm-usage export --format csv  -o usage.csv
+llm-usage export --format json     -o usage.json
+llm-usage export --format csv      -o usage.csv
+llm-usage export --format markdown -o usage.md
 ```
 
-Example `report` output:
+`report` shows p50/p90/p99 latency (computed in Python because SQLite has no
+`PERCENTILE_CONT`) next to the request, token and cost aggregates:
 
 ```
-model              requests  prompt  completion  total  avg_ms  cost_usd  errors
------------------  --------  ------  ----------  -----  ------  --------  ------
-gpt-4o             3         4200    2040        6040   2350    0.0298    1
-claude-3-5-sonnet  1         2200    880         3080   2250    0.0198    0
+model              requests  prompt  completion  total  p50_ms  p90_ms  p99_ms  cost_usd  errors
+-----------------  --------  ------  ----------  -----  ------  ------  ------  --------  ------
+gpt-4o             3         4200    2040        6040   2200    3400    3680    0.0298    1
+claude-3-5-sonnet  1         2200    880         3080   2250    2250    2250    0.0198    0
 ...
-TOTAL              10        ...                                0.0xxx    1
+TOTAL              10        ...                                                0.0xxx    1
 ```
 
 ## Input format
